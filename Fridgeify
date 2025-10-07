@@ -1,0 +1,205 @@
+# Fridgeify
+This is a useful and innovative app in which you can plug in ingredients you have at your house, and our system will auto generate meals you can create with those ingredients.
+
+# create the project (replace fridgeify with your app name)
+npx create-expo-app@latest fridgeify
+
+# go into the folder
+cd fridgeify
+import SwiftUI
+
+struct ContentView: View {
+    @State private var ingredientInput: String = ""
+    @State private var showOnlyComplete: Bool = false
+    @State private var maxMissingAllowed: Int = 2 // tune this to be stricter/looser
+    
+    private var recipes: [Recipe] { RecipeStore.samples }
+    
+    // parse user input into normalized set
+    private var inputSet: Set<String> {
+        let parts = ingredientInput
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            .filter { !$0.isEmpty }
+        return Set(parts)
+    }
+    
+    // computed matching list
+    private var matches: [(recipe: Recipe, missing: [String])] {
+        recipes.map { recipe in
+            let missing = recipe.ingredients.filter { !inputSet.contains($0) }
+            return (recipe, missing)
+        }
+        .filter { pair in
+            // allow recipes with missing <= maxMissingAllowed
+            // optionally apply showOnlyComplete
+            if showOnlyComplete { return pair.missing.isEmpty }
+            return pair.missing.count <= maxMissingAllowed
+        }
+        .sorted { a, b in
+            // sort by number of missing ingredients (fewer missing first), then title
+            if a.missing.count != b.missing.count {
+                return a.missing.count < b.missing.count
+            } else {
+                return a.recipe.title < b.recipe.title
+            }
+        }
+    }
+    
+    var body: some View {
+        NavigationView {
+            VStack {
+                header
+                matchingSummary
+                List {
+                    if matches.isEmpty {
+                        Text("No good matches — try adding more ingredients or allow more missing items.")
+                            .foregroundColor(.secondary)
+                            .padding(.vertical, 8)
+                    } else {
+                        ForEach(matches, id: \.recipe.id) { pair in
+                            NavigationLink(destination: RecipeDetailView(recipe: pair.recipe, missing: pair.missing, availableSet: inputSet)) {
+                                RecipeRow(recipe: pair.recipe, missingCount: pair.missing.count)
+                            }
+                        }
+                    }
+                }
+                .listStyle(.plain)
+            }
+            .navigationTitle("FridgeChef")
+            .navigationBarTitleDisplayMode(.inline)
+            .padding(.horizontal, 6)
+        }
+    }
+    
+    private var header: some View {
+        VStack(spacing: 10) {
+            HStack {
+                Image(systemName: "leaf")
+                    .foregroundColor(.accentColor)
+                TextField("Enter ingredients (eg. chicken, rice, tomato)", text: $ingredientInput)
+                    .textFieldStyle(.roundedBorder)
+                    .autocapitalization(.none)
+                    .disableAutocorrection(true)
+            }
+            HStack {
+                Toggle("Show only complete", isOn: $showOnlyComplete)
+                Spacer()
+                Stepper("Max missing: \(maxMissingAllowed)", value: $maxMissingAllowed, in: 0...5)
+                    .labelsHidden()
+            }
+        }
+        .padding(.vertical, 8)
+    }
+    
+    private var matchingSummary: some View {
+        HStack {
+            Text("You have: \(inputSet.sorted().joined(separator: ", "))")
+                .font(.subheadline)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer()
+            Text("\(matches.count) suggestion(s)")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+        }
+        .padding(.horizontal, 4)
+    }
+}
+
+struct RecipeRow: View {
+    let recipe: Recipe
+    let missingCount: Int
+    
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(recipe.title)
+                    .font(.headline)
+                Text(recipe.ingredients.joined(separator: ", "))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer()
+            if missingCount == 0 {
+                Text("Ready")
+                    .font(.caption)
+                    .padding(6)
+                    .background(Color.green.opacity(0.2))
+                    .cornerRadius(8)
+            } else {
+                Text("\(missingCount) missing")
+                    .font(.caption)
+                    .padding(6)
+                    .background(Color.orange.opacity(0.2))
+                    .cornerRadius(8)
+            }
+        }
+        .padding(.vertical, 6)
+    }
+}
+
+struct RecipeDetailView: View {
+    let recipe: Recipe
+    let missing: [String]
+    let availableSet: Set<String>
+    
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                if let imageName = recipe.imageName, !imageName.isEmpty {
+                    Image(imageName)
+                        .resizable()
+                        .scaledToFit()
+                        .cornerRadius(10)
+                } else {
+                    Rectangle()
+                        .fill(Color.gray.opacity(0.1))
+                        .frame(height: 160)
+                        .overlay(Text(recipe.title).font(.title3).bold())
+                        .cornerRadius(10)
+                }
+                
+                Group {
+                    Text("Ingredients")
+                        .font(.headline)
+                    ForEach(recipe.ingredients, id: \.self) { ing in
+                        HStack {
+                            Image(systemName: availableSet.contains(ing) ? "checkmark.circle.fill" : "xmark.circle")
+                                .foregroundColor(availableSet.contains(ing) ? .green : .red)
+                            Text(ing.capitalized)
+                            Spacer()
+                        }
+                        .font(.body)
+                        .padding(.vertical, 2)
+                    }
+                    if !missing.isEmpty {
+                        Text("Missing: " + missing.map { $0.capitalized }.joined(separator: ", "))
+                            .font(.subheadline)
+                            .foregroundColor(.red)
+                            .padding(.top, 4)
+                    }
+                }
+                
+                Group {
+                    Text("Instructions")
+                        .font(.headline)
+                    Text(recipe.instructions)
+                        .font(.body)
+                }
+                
+                Spacer()
+            }
+            .padding()
+        }
+        .navigationTitle(recipe.title)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+struct ContentView_Previews: PreviewProvider {
+    static var previews: some View {
+        ContentView()
+    }
+}
